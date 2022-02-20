@@ -64,23 +64,19 @@ class Blockchain {
     _addBlock(block) {
         let self = this;
         return new Promise(async (resolve, reject) => {
-           //height
-           block.height = self.height + 1;
-           //timestamp
-           block.time = new Date().getTime().toString().slice(0,-3);
-           if(self.height == -1) { // special genesis block case
-               block.previousBlockHash = null;
-           } else {
-               //previous block hash
-               block.previousBlockHash = this.hash;
-           }
-           // the current block hash
-           block.hash = SHA256(JSON.stringify(block)).toString();
-           // push block to blockchain
-           self.chain.push(block);
-           // update blockchain height
-           this.height += 1;
-           resolve(block);
+            let height = self.chain.length;
+            block.previousBlockHash = self.chain[height - 1] ? self.chain[height - 1].hash : null;
+            block.height = height;
+            block.time = new Date().getTime().toString().slice(0,-3);
+            block.hash = await SHA256(JSON.stringify(block)).toString();
+			const blockValid = block.hash && (block.hash.length === 64) && (block.height === self.chain.length) && block.time;
+            blockValid ? resolve(block) : reject(new Error('Cannot add invalid block.'));
+        })
+        .catch(error => console.log('[ERROR] ', error)) 
+        .then(block => {
+            this.chain.push(block);
+            this.height = this.chain.length - 1;
+            return block;
         });
     }
 
@@ -121,29 +117,17 @@ class Blockchain {
     submitStar(address, message, signature, star) {
         let self = this;
         return new Promise(async (resolve, reject) => {
-            let messageTime = parseInt(message.split(':')[1]);
+            let requestTime = parseInt(message.split(':')[1]);
             let currentTime = parseInt(new Date().getTime().toString().slice(0, -3));
-            if((currentTime - messageTime) > 300){
-                reject(new Error('submitStar: more than five minutes have elapsed'))
-            }
-            var isVerified = false;
-            try {
-                isVerified = bitcoinMessage.verify(message, address, signature)    
-            } catch (error) {
-                Error(error);
-            }
-            let data = {address: address, message: message, signature: signature, star: star};
-            let block = new BlockClass.Block(data);
-            
-            if(!isVerified) {
-                console.log('submitStar verification: ' + isVerified + ' rejecting block');
-                reject(block);
-                return;
-            }
-            console.log('submitStar verification: ' + isVerified + ' adding block');
-            await this._addBlock(block);
-            resolve(block);
-            
+			const spendTime = (currentTime - requestTime);
+            // reject on timeout
+            if (spendTime >= (5 * 60)) reject(new Error('Request timed out.'));
+            if (!bitcoinMessage.verify(message, address, signature)) reject(new Error('Invalid message.'));
+            // add block to chain & resolve
+            let block = new BlockClass.Block({ star });
+            block.owner = address;
+            block = await self._addBlock(block)
+            resolve(block);             
         });
     }
 
@@ -212,13 +196,19 @@ class Blockchain {
         let self = this;
         let errorLog = [];
         return new Promise(async (resolve, reject) => {
-            self.chain.forEach(block => {
-                if(!block.validate()){
-                    errorLog.push(block);
+            for (let block of self.chain) {
+                if (await block.validate()) {
+                    if (block.height > 0) { // skip genesis block
+                        let prevBlock = self.chain.filter(b => b.height === block.height - 1)[0];
+                        if (block.previousBlockHash !== prevBlock.hash) {
+                            errorLog.push(new Error(`Invalid link: Block #${block.height} not linked to the hash of block #${block.height - 1}.`));
+                        }
+                    }
+                } else {
+                    errorLog.push(new Error(`Invalid block #${block.height}: ${block.hash}`))
                 }
-            });
-            resolve(errorLog)
-            
+            }
+            errorLog.length > 0 ? resolve(errorLog) : resolve('No errors detected.');
         });
     }
 
