@@ -37,16 +37,19 @@ class Block {
      */
     validate() {
         let self = this;
-        return new Promise(async (resolve, reject) => {
+        return new Promise((resolve, reject) => {
             // Save in auxiliary variable the current block hash
-			const hash = self.hash;
+            let auxHash = self.hash;
             // Recalculate the hash of the Block
-			self.hash = await SHA256(JSON.stringify({ ...self, hash: null })).toString();
+            const calcHash = SHA256(JSON.stringify(self)).toString();
             // Comparing if the hashes changed
             // Returning the Block is not valid
+            if (auxHash != calcHash) {
+                console.log('Invalid block hash: ' + auxHash + ' != ' + calcHash);
+                resolve(false);
+            }
             // Returning the Block is valid
-            resolve(hash === self.hash);
-
+            resolve(true);
         });
     }
 
@@ -59,20 +62,25 @@ class Block {
      *  3. Resolve with the data and make sure that you don't need to return the data for the `genesis block` 
      *     or Reject with an error.
      */
-    getBData() {
+     getBData() {
         // Getting the encoded data saved in the Block
         let self = this;
-		return new Promise((resolve, reject) => {
-			// Getting the encoded data saved in the Block
-			const hexEncodedString = self.body;
-			// Decoding the data to retrieve the JSON representation of the object
-			const decodedString = hex2ascii(hexEncodedString);
-			// Parse the data to an object to be retrieved.
-			const decodedObject = JSON.parse(decodedString);
-			// Resolve with the data if the object isn't the Genesis block
-			self.height > 0 ? resolve(decodedObject) : reject(new Error('genesis block'));
-		});
+        // Decoding the data to retrieve the JSON representation of the object
+        const decodedData = hex2ascii(self.body);
 
+        // Parse the data to an object to be retrieve.
+        const block = JSON.parse(decodedData);
+
+        // Resolve with the data if the object isn't the Genesis block
+        return new Promise((resolve, reject) => {
+            if(block.data == 'Genesis Block') {
+                console.log('getBData: Genesis Block requested');
+                reject('Genesis Block');
+            }
+            console.log('getBData for Block: ' + block.data);
+            resolve(block);
+        });
+        //TODO: getBData complete
     }
 
 }
